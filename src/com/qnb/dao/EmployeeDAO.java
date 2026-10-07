@@ -47,12 +47,13 @@ public class EmployeeDAO {
              ResultSet rs = stmt.executeQuery()) {
 
             while (rs.next()) {
-                employees.add(new Employee(
-                        rs.getInt("ID"),
-                        rs.getString("NAME"),
-                        rs.getString("DEPARTMENT"),
-                        rs.getDouble("SALARY"),
-                        rs.getDouble("BONUS")));
+                Employee e = new Employee();
+                e.setId(rs.getInt("ID"));
+                e.setName(rs.getString("NAME"));
+                e.setDepartment(rs.getString("DEPARTMENT"));
+                e.setSalary(rs.getDouble("SALARY"));
+                e.setBonus(rs.getDouble("BONUS"));
+                employees.add(e);
             }
 
         } catch (SQLException ex) {
@@ -65,8 +66,7 @@ public class EmployeeDAO {
     // UPDATE - change an existing employee's details by ID
     public void updateEmployee(Employee e) {
 
-        String sql = "UPDATE EMPLOYEE SET NAME = ?, DEPARTMENT = ?, SALARY = ?, BONUS = ?, "
-                + "UPDATE_DATE = CURRENT_TIMESTAMP WHERE ID = ?";
+        String sql = "UPDATE EMPLOYEE SET NAME = ?, DEPARTMENT = ?, SALARY = ?, BONUS = ? WHERE ID = ?";
 
         try (Connection conn = DBConnection.getConnection();
              PreparedStatement stmt = conn.prepareStatement(sql)) {
@@ -138,15 +138,16 @@ public class EmployeeDAO {
 
             stmt.execute();
 
-            try (ResultSet rs = stmt.getObject(2, ResultSet.class)) {
-                while (rs.next()) {
-                    employees.add(new Employee(
-                            rs.getInt("ID"),
-                            rs.getString("NAME"),
-                            rs.getString("DEPARTMENT"),
-                            rs.getDouble("SALARY"),
-                            rs.getDouble("BONUS")));
-                }
+            ResultSet rs = (ResultSet) stmt.getObject(2);
+
+            while (rs.next()) {
+                Employee e = new Employee();
+                e.setId(rs.getInt("ID"));
+                e.setName(rs.getString("NAME"));
+                e.setDepartment(rs.getString("DEPARTMENT"));
+                e.setSalary(rs.getDouble("SALARY"));
+                e.setBonus(rs.getDouble("BONUS"));
+                employees.add(e);
             }
 
         } catch (SQLException ex) {

@@ -36,7 +36,7 @@ CREATE TABLE EMPLOYEE (
     UPDATE_DATE TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
 );
 ```
-- Audit columns. If you don't give a value, Oracle fills in "now". Our UPDATE statement sets `UPDATE_DATE` again.
+- Audit columns. If you don't give a value, Oracle fills in "now" automatically, so Java never has to send them.
 
 ### Procedure 1 – simple procedure call
 ```sql
@@ -172,7 +172,7 @@ public Employee(String name, String department, double salary, double bonus) { �
 ```java
 public Employee(int id, String name, String department, double salary, double bonus) { … }
 ```
-- Used for **reading**: the row from the database already has an ID. `this.name = name` means "the field `name` = the parameter `name`".
+- An all-fields constructor (includes the ID). We don't use it in this project – the DAO uses the empty constructor + setters instead – but it's handy to have. `this.name = name` means "the field `name` = the parameter `name`".
 ```java
 public int getId() { return id; }
 public void setId(int id) { this.id = id; }
@@ -238,16 +238,18 @@ try (Connection conn = DBConnection.getConnection();
 - `executeQuery()` is used for SELECT. It returns a `ResultSet` – like a table you read row by row.
 ```java
 while (rs.next()) {
-    employees.add(new Employee(
-            rs.getInt("ID"),
-            rs.getString("NAME"),
-            rs.getString("DEPARTMENT"),
-            rs.getDouble("SALARY"),
-            rs.getDouble("BONUS")));
+    Employee e = new Employee();
+    e.setId(rs.getInt("ID"));
+    e.setName(rs.getString("NAME"));
+    e.setDepartment(rs.getString("DEPARTMENT"));
+    e.setSalary(rs.getDouble("SALARY"));
+    e.setBonus(rs.getDouble("BONUS"));
+    employees.add(e);
 }
 ```
 - `rs.next()` moves to the next row; returns `false` when there are no more rows → loop ends.
-- `rs.getXxx("COLUMN")` reads a column of the current row. We build an `Employee` (using the 5-argument "reading" constructor) and add it to the list.
+- For each row: create an empty `Employee`, then copy each column into it with a setter. `rs.getXxx("COLUMN")` reads a column of the current row (`getInt` for numbers without decimals, `getString` for text, `getDouble` for decimals).
+- `employees.add(e)` puts the finished employee into the list.
 ```java
 return employees;
 ```
@@ -255,10 +257,9 @@ return employees;
 
 ### UPDATE – `updateEmployee(Employee e)`
 ```java
-String sql = "UPDATE EMPLOYEE SET NAME = ?, DEPARTMENT = ?, SALARY = ?, BONUS = ?, "
-        + "UPDATE_DATE = CURRENT_TIMESTAMP WHERE ID = ?";
+String sql = "UPDATE EMPLOYEE SET NAME = ?, DEPARTMENT = ?, SALARY = ?, BONUS = ? WHERE ID = ?";
 ```
-- Change all fields of the row whose `ID` matches. `UPDATE_DATE = CURRENT_TIMESTAMP` records when it changed.
+- Change all fields of the row whose `ID` matches. Without the `WHERE`, **every** row would be updated!
 ```java
 stmt.setString(1, e.getName());
 … 
@@ -306,17 +307,19 @@ stmt.registerOutParameter(2, Types.REF_CURSOR);
 - Set the IN value. For an OUT parameter we don't set a value – we **register** it, telling JDBC "parameter 2 will come back as a cursor".
 ```java
 stmt.execute();
-try (ResultSet rs = stmt.getObject(2, ResultSet.class)) {
+ResultSet rs = (ResultSet) stmt.getObject(2);
 ```
-- After running, get parameter 2 back **as a `ResultSet`**. From here it's exactly like the READ method.
+- After running, get parameter 2 back. `getObject` returns a general `Object`, so we **cast** it with `(ResultSet)` to tell Java "this is a ResultSet".
 ```java
-    while (rs.next()) {
-        employees.add(new Employee(rs.getInt("ID"), …));
-    }
+while (rs.next()) {
+    Employee e = new Employee();
+    e.setId(rs.getInt("ID"));
+    …
+    employees.add(e);
 }
 return employees;
 ```
-- Loop over the rows, build employees, return the list.
+- From here it's exactly the same loop as the READ method. The `rs` is closed automatically when the connection closes.
 
 ### PROCEDURE CALL WITH OBJECT – `addEmployeeWithObject(Employee e)`
 ```java
@@ -354,12 +357,15 @@ for (Employee e : employees) { System.out.println(e); }
 ```
 - **2. READ** – get all rows and print each one (uses `toString()`).
 ```java
-Employee toUpdate = employees.get(0);
+Employee toUpdate = new Employee();
+toUpdate.setId(1);
+toUpdate.setName("Noel Thomas");
+toUpdate.setDepartment("IT");
 toUpdate.setSalary(15000.0);
 toUpdate.setBonus(1000.0);
 dao.updateEmployee(toUpdate);
 ```
-- **3. UPDATE** – take the first employee we just read (it already has a real ID from the database, so we don't hard-code `1`), change salary and bonus, save it.
+- **3. UPDATE** – build an employee with ID 1 and the new values, then save it. If there is no row with ID 1, it prints `0 row(s) updated.` – check the IDs printed by the READ step and change the number if needed.
 ```java
 dao.addEmployeeWithProcedure(new Employee("Sara Ali", "HR", 9000.0, 300.0));
 ```
@@ -373,9 +379,9 @@ for (Employee e : dao.getEmployeesByDepartment("IT")) { System.out.println(e); }
 ```
 - **6. PROCEDURE RETURNING RESULT SET** – prints only IT employees (Sara from HR won't appear).
 ```java
-dao.deleteEmployee(toUpdate.getId());
+dao.deleteEmployee(1);
 ```
-- **7. DELETE** – removes the employee we updated.
+- **7. DELETE** – removes the employee with ID 1.
 ```java
 for (Employee e : dao.getAllEmployees()) { System.out.println(e); }
 ```
@@ -389,5 +395,5 @@ for (Employee e : dao.getAllEmployees()) { System.out.println(e); }
 | SELECT | `PreparedStatement` | `executeQuery()` | `ResultSet` |
 | INSERT / UPDATE / DELETE | `PreparedStatement` | `executeUpdate()` | number of rows |
 | Stored procedure | `CallableStatement` (`{call …}`) | `execute()` | OUT params via `getXxx()` |
-| Procedure OUT cursor | `registerOutParameter(n, Types.REF_CURSOR)` | `execute()` | `getObject(n, ResultSet.class)` |
+| Procedure OUT cursor | `registerOutParameter(n, Types.REF_CURSOR)` | `execute()` | `(ResultSet) stmt.getObject(n)` |
 | Oracle object param | `conn.createStruct("TYPE", values)` | `setObject(n, struct)` | – |

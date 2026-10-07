@@ -21,8 +21,11 @@ public class MainApp {
             System.out.println(e);
         }
 
-        // 3. UPDATE - give the first employee in the list a raise
-        Employee toUpdate = employees.get(0);
+        // 3. UPDATE - give employee with ID 1 a raise
+        Employee toUpdate = new Employee();
+        toUpdate.setId(1);
+        toUpdate.setName("Noel Thomas");
+        toUpdate.setDepartment("IT");
         toUpdate.setSalary(15000.0);
         toUpdate.setBonus(1000.0);
         dao.updateEmployee(toUpdate);
@@ -39,8 +42,8 @@ public class MainApp {
             System.out.println(e);
         }
 
-        // 7. DELETE - remove the employee we updated
-        dao.deleteEmployee(toUpdate.getId());
+        // 7. DELETE - remove employee with ID 1
+        dao.deleteEmployee(1);
 
         // Read again to see the final table
         System.out.println("Final Employee List");
