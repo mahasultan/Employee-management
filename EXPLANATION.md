@@ -6,9 +6,9 @@ This project shows every database requirement with the simplest possible JDBC + 
 |---|---|
 | Read | `EmployeeDAO.getAllEmployees()` |
 | Insert / Update / Delete | `insertEmployee()`, `updateEmployee()`, `deleteEmployee()` |
-| Procedure call | `addEmployeeWithProcedure()` → `ADD_EMPLOYEE` |
-| Return result set in procedure | `getEmployeesByDepartment()` → `GET_EMPLOYEES_BY_DEPT` |
-| Procedure call with object | `addEmployeeWithObject()` → `ADD_EMPLOYEE_OBJ` |
+| Procedure call | `calculateBonus()` → `CALCULATE_BONUS` |
+| Return result set in procedure | `getEmployeesWithCursor()` → `GET_EMPLOYEES_CURSOR` |
+| Procedure call with object | `insertEmployeeWithObject()` → `INSERT_EMPLOYEE_OBJ` |
 
 **Order to run:** 1) run `sql/EMPLOYEE.sql` in SQL Developer (F5 "Run Script"), 2) fill in your credentials in `DBConnection.java`, 3) run `DBConnection` to test the connection, 4) run `MainApp`.
 
@@ -21,14 +21,15 @@ The flow is always: **MainApp → EmployeeDAO → DBConnection → Oracle**, wit
 ### The table
 ```sql
 CREATE TABLE EMPLOYEE (
-    ID          NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    ID NUMBER GENERATED ALWAYS AS IDENTITY
+        PRIMARY KEY,
 ```
 - `ID` – Oracle generates the number itself (1, 2, 3…). That's why Java never sends an ID on insert. `PRIMARY KEY` = unique and not null.
 ```sql
-    NAME        VARCHAR2(100) NOT NULL,
-    DEPARTMENT  VARCHAR2(100),
-    SALARY      NUMBER(10,2),
-    BONUS       NUMBER(10,2),
+    NAME VARCHAR2(100) NOT NULL,
+    DEPARTMENT VARCHAR2(100),
+    SALARY NUMBER(10,2),
+    BONUS NUMBER(10,2),
 ```
 - Text columns up to 100 chars; `NAME` is required. `NUMBER(10,2)` = up to 10 digits, 2 after the decimal point.
 ```sql
@@ -38,66 +39,81 @@ CREATE TABLE EMPLOYEE (
 ```
 - Audit columns. If you don't give a value, Oracle fills in "now" automatically, so Java never has to send them.
 
-### Procedure 1 – simple procedure call
+### The object type
 ```sql
-CREATE OR REPLACE PROCEDURE ADD_EMPLOYEE (
-    p_name       IN VARCHAR2,
-    p_department IN VARCHAR2,
-    p_salary     IN NUMBER,
-    p_bonus      IN NUMBER
+CREATE OR REPLACE TYPE EMPLOYEE_OBJ AS OBJECT (
+    ID          NUMBER,
+    NAME        VARCHAR2(100),
+    DEPARTMENT  VARCHAR2(100),
+    SALARY      NUMBER,
+    BONUS       NUMBER
+);
+/
+```
+- Creates a custom Oracle **object type** – basically the database version of our Java `Employee` class (one "package" holding 5 fields).
+- `CREATE OR REPLACE` – create it, or overwrite it if it already exists (so you can re-run the script).
+- `/` – tells SQL Developer "this block ends here, run it". Needed after every type/procedure.
+
+### Procedure 1 – `CALCULATE_BONUS` (simple procedure call with IN and OUT)
+```sql
+CREATE OR REPLACE PROCEDURE CALCULATE_BONUS (
+    p_id    IN  NUMBER,
+    p_bonus OUT NUMBER
 ) AS
+```
+- `IN` parameter = a value coming **in** from Java (the employee ID).
+- `OUT` parameter = a value the procedure sends **back** to Java (the bonus).
+```sql
+    v_salary NUMBER;
+```
+- A local variable, declared between `AS` and `BEGIN`, to hold the salary while we work.
+```sql
 BEGIN
-    INSERT INTO EMPLOYEE (NAME, DEPARTMENT, SALARY, BONUS)
-    VALUES (p_name, p_department, p_salary, p_bonus);
+    SELECT SALARY INTO v_salary FROM EMPLOYEE WHERE ID = p_id;
+```
+- Read the employee's salary and store it **into** `v_salary`. (If the ID doesn't exist, Oracle raises "no data found".)
+```sql
+    p_bonus := v_salary * 0.10;
+```
+- `:=` means "assign" in PL/SQL. The bonus = 10% of the salary. Setting `p_bonus` is what sends it back to Java.
+```sql
+    UPDATE EMPLOYEE SET BONUS = p_bonus WHERE ID = p_id;
+    COMMIT;
 END;
 /
 ```
-- `CREATE OR REPLACE` – create it, or overwrite it if it already exists (so you can re-run the script).
-- `IN` parameters – values coming **in** from Java.
-- Body is a normal INSERT using the parameters.
-- `/` – tells SQL Developer "the PL/SQL block ends here, run it". Needed after every procedure/type.
+- Save the new bonus in the table and `COMMIT` (make it permanent).
 
-### Procedure 2 – returns a result set
+### Procedure 2 – `GET_EMPLOYEES_CURSOR` (returns a result set)
 ```sql
-CREATE OR REPLACE PROCEDURE GET_EMPLOYEES_BY_DEPT (
-    p_department IN  VARCHAR2,
-    p_result     OUT SYS_REFCURSOR
+CREATE OR REPLACE PROCEDURE GET_EMPLOYEES_CURSOR (
+    p_cursor OUT SYS_REFCURSOR
 ) AS
 BEGIN
-    OPEN p_result FOR
-        SELECT ID, NAME, DEPARTMENT, SALARY, BONUS
-        FROM EMPLOYEE
-        WHERE DEPARTMENT = p_department;
+    OPEN p_cursor FOR
+        SELECT ID, NAME, DEPARTMENT, SALARY, BONUS FROM EMPLOYEE ORDER BY ID;
 END;
 /
 ```
 - A procedure can't `return` rows directly. Instead it has an `OUT` parameter of type `SYS_REFCURSOR` – a **pointer to the rows of a query**.
-- `OPEN p_result FOR SELECT …` runs the query and points the cursor at the results.
+- `OPEN p_cursor FOR SELECT …` runs the query (sorted by ID) and points the cursor at the results.
 - Java receives this cursor and reads it as a normal `ResultSet`.
 
-### Procedure 3 – called with an object
+### Procedure 3 – `INSERT_EMPLOYEE_OBJ` (called with an object)
 ```sql
-CREATE OR REPLACE TYPE EMPLOYEE_OBJ AS OBJECT (
-    NAME       VARCHAR2(100),
-    DEPARTMENT VARCHAR2(100),
-    SALARY     NUMBER(10,2),
-    BONUS      NUMBER(10,2)
-);
-/
-```
-- Creates a custom Oracle **object type** – basically the database version of our Java `Employee` class (one "package" holding 4 fields).
-```sql
-CREATE OR REPLACE PROCEDURE ADD_EMPLOYEE_OBJ (
+CREATE OR REPLACE PROCEDURE INSERT_EMPLOYEE_OBJ (
     p_emp IN EMPLOYEE_OBJ
 ) AS
 BEGIN
     INSERT INTO EMPLOYEE (NAME, DEPARTMENT, SALARY, BONUS)
     VALUES (p_emp.NAME, p_emp.DEPARTMENT, p_emp.SALARY, p_emp.BONUS);
+    COMMIT;
 END;
 /
 ```
 - Takes **one** parameter (the whole employee) instead of four.
 - `p_emp.NAME` reads a field from the object, just like `e.getName()` in Java.
+- `p_emp.ID` is **not** used – Oracle generates the ID itself.
 
 ---
 
@@ -276,40 +292,42 @@ int rows = stmt.executeUpdate();
 ```
 - Delete the row with that ID; prints how many rows were deleted.
 
-### PROCEDURE CALL – `addEmployeeWithProcedure(Employee e)`
+### PROCEDURE CALL – `calculateBonus(int id)`
 ```java
-String sql = "{call ADD_EMPLOYEE(?, ?, ?, ?)}";
+String sql = "{call CALCULATE_BONUS(?, ?)}";
 ```
-- `{call NAME(?, …)}` is the standard JDBC syntax for calling a stored procedure.
+- `{call NAME(?, …)}` is the standard JDBC syntax for calling a stored procedure. 1st `?` = IN id, 2nd `?` = OUT bonus.
 ```java
 try (Connection conn = DBConnection.getConnection();
      CallableStatement stmt = conn.prepareCall(sql)) {
 ```
-- `prepareCall` gives a `CallableStatement` – the statement type for procedures (it supports OUT parameters too).
+- `prepareCall` gives a `CallableStatement` – the statement type for procedures (it supports OUT parameters).
 ```java
-stmt.setString(1, e.getName());
-stmt.setString(2, e.getDepartment());
-stmt.setDouble(3, e.getSalary());
-stmt.setDouble(4, e.getBonus());
-stmt.execute();
+stmt.setInt(1, id);
+stmt.registerOutParameter(2, Types.NUMERIC);
 ```
-- Fill the 4 IN parameters (same order as in the procedure) and run it. `execute()` is the general "run it" method used for procedures.
+- Set the IN value. For an OUT parameter we don't set a value – we **register** it, telling JDBC "parameter 2 will come back as a number".
+```java
+stmt.execute();
+double bonus = stmt.getDouble(2);
+System.out.println("New bonus for employee " + id + ": " + bonus);
+```
+- `execute()` runs the procedure. Then `getDouble(2)` reads the OUT value the procedure sent back, and we print it.
 
-### PROCEDURE RETURNING A RESULT SET – `getEmployeesByDepartment(String department)`
+### PROCEDURE RETURNING A RESULT SET – `getEmployeesWithCursor()`
 ```java
-String sql = "{call GET_EMPLOYEES_BY_DEPT(?, ?)}";
+String sql = "{call GET_EMPLOYEES_CURSOR(?)}";
 ```
-- 1st `?` = IN department, 2nd `?` = OUT cursor.
+- Only one `?` – the OUT cursor.
 ```java
-stmt.setString(1, department);
-stmt.registerOutParameter(2, Types.REF_CURSOR);
+stmt.registerOutParameter(1, Types.REF_CURSOR);
 ```
-- Set the IN value. For an OUT parameter we don't set a value – we **register** it, telling JDBC "parameter 2 will come back as a cursor".
+- Tell JDBC "parameter 1 will come back as a cursor".
 ```java
 stmt.execute();
-ResultSet rs = (ResultSet) stmt.getObject(2);
+ResultSet rs = (ResultSet) stmt.getObject(1);
 ```
-- After running, get parameter 2 back. `getObject` returns a general `Object`, so we **cast** it with `(ResultSet)` to tell Java "this is a ResultSet".
+- After running, get parameter 1 back. `getObject` returns a general `Object`, so we **cast** it with `(ResultSet)` to tell Java "this is a ResultSet".
 ```java
 while (rs.next()) {
     Employee e = new Employee();
@@ -321,15 +339,15 @@ return employees;
 ```
 - From here it's exactly the same loop as the READ method. The `rs` is closed automatically when the connection closes.
 
-### PROCEDURE CALL WITH OBJECT – `addEmployeeWithObject(Employee e)`
+### PROCEDURE CALL WITH OBJECT – `insertEmployeeWithObject(Employee e)`
 ```java
-String sql = "{call ADD_EMPLOYEE_OBJ(?)}";
+String sql = "{call INSERT_EMPLOYEE_OBJ(?)}";
 ```
 - Only **one** `?` – the whole employee object.
 ```java
-Object[] attributes = { e.getName(), e.getDepartment(), e.getSalary(), e.getBonus() };
+Object[] attributes = { e.getId(), e.getName(), e.getDepartment(), e.getSalary(), e.getBonus() };
 ```
-- The values of the object's fields, **in the same order as in `CREATE TYPE EMPLOYEE_OBJ`** (NAME, DEPARTMENT, SALARY, BONUS).
+- The values of the object's fields, **in the same order as in `CREATE TYPE EMPLOYEE_OBJ`** (ID, NAME, DEPARTMENT, SALARY, BONUS). A new employee's ID is `0` – that's fine, the procedure ignores it.
 ```java
 Struct empObj = conn.createStruct("EMPLOYEE_OBJ", attributes);
 ```
@@ -367,17 +385,17 @@ dao.updateEmployee(toUpdate);
 ```
 - **3. UPDATE** – build an employee with ID 1 and the new values, then save it. If there is no row with ID 1, it prints `0 row(s) updated.` – check the IDs printed by the READ step and change the number if needed.
 ```java
-dao.addEmployeeWithProcedure(new Employee("Sara Ali", "HR", 9000.0, 300.0));
+dao.calculateBonus(1);
 ```
-- **4. PROCEDURE CALL** – inserts through `ADD_EMPLOYEE`.
+- **4. PROCEDURE CALL** – `CALCULATE_BONUS` sets employee 1's bonus to 10% of their salary and prints it.
 ```java
-dao.addEmployeeWithObject(new Employee("Omar Khan", "IT", 11000.0, 400.0));
+dao.insertEmployeeWithObject(new Employee("Omar Khan", "IT", 11000.0, 400.0));
 ```
-- **5. PROCEDURE WITH OBJECT** – inserts through `ADD_EMPLOYEE_OBJ`.
+- **5. PROCEDURE WITH OBJECT** – inserts through `INSERT_EMPLOYEE_OBJ`.
 ```java
-for (Employee e : dao.getEmployeesByDepartment("IT")) { System.out.println(e); }
+for (Employee e : dao.getEmployeesWithCursor()) { System.out.println(e); }
 ```
-- **6. PROCEDURE RETURNING RESULT SET** – prints only IT employees (Sara from HR won't appear).
+- **6. PROCEDURE RETURNING RESULT SET** – prints every employee, read through `GET_EMPLOYEES_CURSOR`.
 ```java
 dao.deleteEmployee(1);
 ```
@@ -394,6 +412,6 @@ for (Employee e : dao.getAllEmployees()) { System.out.println(e); }
 |---|---|---|---|
 | SELECT | `PreparedStatement` | `executeQuery()` | `ResultSet` |
 | INSERT / UPDATE / DELETE | `PreparedStatement` | `executeUpdate()` | number of rows |
-| Stored procedure | `CallableStatement` (`{call …}`) | `execute()` | OUT params via `getXxx()` |
+| Stored procedure | `CallableStatement` (`{call …}`) | `execute()` | OUT value: `registerOutParameter(n, Types.NUMERIC)` then `getDouble(n)` |
 | Procedure OUT cursor | `registerOutParameter(n, Types.REF_CURSOR)` | `execute()` | `(ResultSet) stmt.getObject(n)` |
 | Oracle object param | `conn.createStruct("TYPE", values)` | `setObject(n, struct)` | – |

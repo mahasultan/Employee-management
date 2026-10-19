@@ -103,42 +103,41 @@ public class EmployeeDAO {
         }
     }
 
-    // PROCEDURE CALL - insert an employee by calling ADD_EMPLOYEE
-    public void addEmployeeWithProcedure(Employee e) {
+    // PROCEDURE CALL - send an ID in, get the bonus back out (CALCULATE_BONUS)
+    public void calculateBonus(int id) {
 
-        String sql = "{call ADD_EMPLOYEE(?, ?, ?, ?)}";
+        String sql = "{call CALCULATE_BONUS(?, ?)}";
 
         try (Connection conn = DBConnection.getConnection();
              CallableStatement stmt = conn.prepareCall(sql)) {
 
-            stmt.setString(1, e.getName());
-            stmt.setString(2, e.getDepartment());
-            stmt.setDouble(3, e.getSalary());
-            stmt.setDouble(4, e.getBonus());
+            stmt.setInt(1, id);
+            stmt.registerOutParameter(2, Types.NUMERIC);
 
             stmt.execute();
-            System.out.println("Procedure ADD_EMPLOYEE executed.");
+
+            double bonus = stmt.getDouble(2);
+            System.out.println("New bonus for employee " + id + ": " + bonus);
 
         } catch (SQLException ex) {
             ex.printStackTrace();
         }
     }
 
-    // PROCEDURE RETURNING A RESULT SET - get employees of one department
-    public List<Employee> getEmployeesByDepartment(String department) {
+    // PROCEDURE RETURNING A RESULT SET - get every employee (GET_EMPLOYEES_CURSOR)
+    public List<Employee> getEmployeesWithCursor() {
 
         List<Employee> employees = new ArrayList<>();
-        String sql = "{call GET_EMPLOYEES_BY_DEPT(?, ?)}";
+        String sql = "{call GET_EMPLOYEES_CURSOR(?)}";
 
         try (Connection conn = DBConnection.getConnection();
              CallableStatement stmt = conn.prepareCall(sql)) {
 
-            stmt.setString(1, department);
-            stmt.registerOutParameter(2, Types.REF_CURSOR);
+            stmt.registerOutParameter(1, Types.REF_CURSOR);
 
             stmt.execute();
 
-            ResultSet rs = (ResultSet) stmt.getObject(2);
+            ResultSet rs = (ResultSet) stmt.getObject(1);
 
             while (rs.next()) {
                 Employee e = new Employee();
@@ -157,21 +156,21 @@ public class EmployeeDAO {
         return employees;
     }
 
-    // PROCEDURE CALL WITH OBJECT - send the whole employee as one EMPLOYEE_OBJ
-    public void addEmployeeWithObject(Employee e) {
+    // PROCEDURE CALL WITH OBJECT - send the whole employee as one EMPLOYEE_OBJ (INSERT_EMPLOYEE_OBJ)
+    public void insertEmployeeWithObject(Employee e) {
 
-        String sql = "{call ADD_EMPLOYEE_OBJ(?)}";
+        String sql = "{call INSERT_EMPLOYEE_OBJ(?)}";
 
         try (Connection conn = DBConnection.getConnection();
              CallableStatement stmt = conn.prepareCall(sql)) {
 
-            Object[] attributes = { e.getName(), e.getDepartment(), e.getSalary(), e.getBonus() };
+            Object[] attributes = { e.getId(), e.getName(), e.getDepartment(), e.getSalary(), e.getBonus() };
             Struct empObj = conn.createStruct("EMPLOYEE_OBJ", attributes);
 
             stmt.setObject(1, empObj);
 
             stmt.execute();
-            System.out.println("Procedure ADD_EMPLOYEE_OBJ executed.");
+            System.out.println("Procedure INSERT_EMPLOYEE_OBJ executed.");
 
         } catch (SQLException ex) {
             ex.printStackTrace();

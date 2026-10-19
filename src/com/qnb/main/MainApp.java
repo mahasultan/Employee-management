@@ -30,15 +30,15 @@ public class MainApp {
         toUpdate.setBonus(1000.0);
         dao.updateEmployee(toUpdate);
 
-        // 4. PROCEDURE CALL - insert using the ADD_EMPLOYEE procedure
-        dao.addEmployeeWithProcedure(new Employee("Sara Ali", "HR", 9000.0, 300.0));
+        // 4. PROCEDURE CALL - CALCULATE_BONUS sets employee 1's bonus to 10% of salary
+        dao.calculateBonus(1);
 
-        // 5. PROCEDURE CALL WITH OBJECT - insert using the ADD_EMPLOYEE_OBJ procedure
-        dao.addEmployeeWithObject(new Employee("Omar Khan", "IT", 11000.0, 400.0));
+        // 5. PROCEDURE CALL WITH OBJECT - insert using INSERT_EMPLOYEE_OBJ
+        dao.insertEmployeeWithObject(new Employee("Omar Khan", "IT", 11000.0, 400.0));
 
-        // 6. PROCEDURE RETURNING A RESULT SET - read only the IT department
-        System.out.println("IT Department (from procedure)");
-        for (Employee e : dao.getEmployeesByDepartment("IT")) {
+        // 6. PROCEDURE RETURNING A RESULT SET - read everyone using GET_EMPLOYEES_CURSOR
+        System.out.println("Employee List (from procedure)");
+        for (Employee e : dao.getEmployeesWithCursor()) {
             System.out.println(e);
         }
 
