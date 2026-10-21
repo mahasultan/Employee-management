@@ -11,11 +11,21 @@ public class DBConnection {
     private static final String USER = "YOUR_USER";
     private static final String PASSWORD = "YOUR_PASSWORD";
 
-    // connection where DAO method will call
-    public static Connection getConnection() throws SQLException {
-        return DriverManager.getConnection(URL, USER, PASSWORD);
+    private static Connection connection = null;
+
+    private DBConnection() {
+
     }
 
+    // one shared connection - only created the first time (or if it was closed)
+    public static Connection getConnection() throws SQLException {
+        if (connection == null || connection.isClosed()) {
+            connection = DriverManager.getConnection(URL, USER, PASSWORD);
+        }
+        return connection;
+    }
+
+    // Testing connection
     public static void main(String[] args) {
         try (Connection conn = getConnection()) {
             System.out.println("Connected successfully!");

@@ -4,7 +4,6 @@ import com.qnb.model.Employee;
 import com.qnb.util.DBConnection;
 
 import java.sql.CallableStatement;
-import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -20,8 +19,7 @@ public class EmployeeDAO {
 
         String sql = "INSERT INTO EMPLOYEE (NAME, DEPARTMENT, SALARY, BONUS) VALUES (?, ?, ?, ?)";
 
-        try (Connection conn = DBConnection.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(sql)) {
+        try (PreparedStatement stmt = DBConnection.getConnection().prepareStatement(sql)) {
 
             stmt.setString(1, e.getName());
             stmt.setString(2, e.getDepartment());
@@ -42,8 +40,7 @@ public class EmployeeDAO {
         List<Employee> employees = new ArrayList<>();
         String sql = "SELECT ID, NAME, DEPARTMENT, SALARY, BONUS FROM EMPLOYEE";
 
-        try (Connection conn = DBConnection.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(sql);
+        try (PreparedStatement stmt = DBConnection.getConnection().prepareStatement(sql);
              ResultSet rs = stmt.executeQuery()) {
 
             while (rs.next()) {
@@ -68,8 +65,7 @@ public class EmployeeDAO {
 
         String sql = "UPDATE EMPLOYEE SET NAME = ?, DEPARTMENT = ?, SALARY = ?, BONUS = ? WHERE ID = ?";
 
-        try (Connection conn = DBConnection.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(sql)) {
+        try (PreparedStatement stmt = DBConnection.getConnection().prepareStatement(sql)) {
 
             stmt.setString(1, e.getName());
             stmt.setString(2, e.getDepartment());
@@ -90,8 +86,7 @@ public class EmployeeDAO {
 
         String sql = "DELETE FROM EMPLOYEE WHERE ID = ?";
 
-        try (Connection conn = DBConnection.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(sql)) {
+        try (PreparedStatement stmt = DBConnection.getConnection().prepareStatement(sql)) {
 
             stmt.setInt(1, id);
 
@@ -108,8 +103,7 @@ public class EmployeeDAO {
 
         String sql = "{call CALCULATE_BONUS(?, ?)}";
 
-        try (Connection conn = DBConnection.getConnection();
-             CallableStatement stmt = conn.prepareCall(sql)) {
+        try (CallableStatement stmt = DBConnection.getConnection().prepareCall(sql)) {
 
             stmt.setInt(1, id);
             stmt.registerOutParameter(2, Types.NUMERIC);
@@ -130,8 +124,7 @@ public class EmployeeDAO {
         List<Employee> employees = new ArrayList<>();
         String sql = "{call GET_EMPLOYEES_CURSOR(?)}";
 
-        try (Connection conn = DBConnection.getConnection();
-             CallableStatement stmt = conn.prepareCall(sql)) {
+        try (CallableStatement stmt = DBConnection.getConnection().prepareCall(sql)) {
 
             stmt.registerOutParameter(1, Types.REF_CURSOR);
 
@@ -161,11 +154,10 @@ public class EmployeeDAO {
 
         String sql = "{call INSERT_EMPLOYEE_OBJ(?)}";
 
-        try (Connection conn = DBConnection.getConnection();
-             CallableStatement stmt = conn.prepareCall(sql)) {
+        try (CallableStatement stmt = DBConnection.getConnection().prepareCall(sql)) {
 
             Object[] attributes = { e.getId(), e.getName(), e.getDepartment(), e.getSalary(), e.getBonus() };
-            Struct empObj = conn.createStruct("EMPLOYEE_OBJ", attributes);
+            Struct empObj = DBConnection.getConnection().createStruct("EMPLOYEE_OBJ", attributes);
 
             stmt.setObject(1, empObj);
 

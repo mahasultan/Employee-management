@@ -148,11 +148,26 @@ private static final String PASSWORD = "YOUR_PASSWORD";
 - `private static final` = a constant belonging to the class, can't be changed, hidden from other classes.
 - **Put your real values here on your machine. They are placeholders in GitHub on purpose – never push real passwords.**
 ```java
-public static Connection getConnection() throws SQLException {
-    return DriverManager.getConnection(URL, USER, PASSWORD);
+private static Connection connection = null;
+```
+- One shared connection for the whole program. `static` = it belongs to the class, so every DAO method sees the same one. It starts as `null` (no connection yet).
+```java
+private DBConnection() {
+
 }
 ```
-- Every DAO method calls this to get a fresh connection. `DriverManager` finds the Oracle driver and logs in. `throws SQLException` = the caller must handle a failure.
+- A `private` constructor means nobody can do `new DBConnection()` – you can only use it through `DBConnection.getConnection()`.
+```java
+public static Connection getConnection() throws SQLException {
+    if (connection == null || connection.isClosed()) {
+        connection = DriverManager.getConnection(URL, USER, PASSWORD);
+    }
+    return connection;
+}
+```
+- **Only the first call actually logs in** (when `connection` is still `null`). Every call after that just returns the same connection – much faster than logging in every time.
+- `connection.isClosed()` – if the connection was closed (for example by the test `main` below), a new one is opened instead of returning a dead one.
+- `DriverManager` finds the Oracle driver and logs in. `throws SQLException` = the caller must handle a failure.
 ```java
 public static void main(String[] args) {
     try (Connection conn = getConnection()) {
@@ -164,7 +179,7 @@ public static void main(String[] args) {
 }
 ```
 - A quick test: run this class alone to check the login works.
-- `try ( … )` is **try-with-resources**: the connection is closed automatically at the end, even on error.
+- `try ( … )` is **try-with-resources**: the connection is closed automatically at the end, even on error. That's fine here because this is only a test – `getConnection()` will open a new one next time because of the `isClosed()` check.
 
 ---
 
@@ -208,7 +223,7 @@ public String toString() {
 ## 5. `com.qnb.dao.EmployeeDAO` – all database work
 DAO = **Data Access Object**: the only class that writes SQL. Every method follows the same 4 steps:
 1. Write the SQL with `?` placeholders.
-2. Open connection + statement in `try ( … )` so they auto-close.
+2. Get the shared connection with `DBConnection.getConnection()` and create the statement in `try ( … )`. **Only the statement goes inside `try ( … )`** – it is closed automatically, but the shared connection stays open for the next method.
 3. Fill the `?` (numbered from **1**) and execute.
 4. `catch (SQLException ex)` prints any database error.
 
@@ -222,10 +237,10 @@ String sql = "INSERT INTO EMPLOYEE (NAME, DEPARTMENT, SALARY, BONUS) VALUES (?, 
 ```
 - `?` are placeholders. Using them (instead of gluing strings together) **prevents SQL injection** and handles quotes for you.
 ```java
-try (Connection conn = DBConnection.getConnection();
-     PreparedStatement stmt = conn.prepareStatement(sql)) {
+try (PreparedStatement stmt = DBConnection.getConnection().prepareStatement(sql)) {
 ```
-- Opens the connection and prepares (pre-compiles) the SQL. Both close automatically.
+- Get the shared connection and prepare (pre-compile) the SQL on it.
+- Only `stmt` is inside `try ( … )`, so only the statement is closed at the end. If we put the `Connection` inside `try ( … )` too, it would be **closed after the first method**, and the next method would fail with "Closed Connection".
 ```java
 stmt.setString(1, e.getName());
 stmt.setString(2, e.getDepartment());
@@ -247,8 +262,7 @@ String sql = "SELECT ID, NAME, DEPARTMENT, SALARY, BONUS FROM EMPLOYEE";
 ```
 - An empty list we will fill, and the query.
 ```java
-try (Connection conn = DBConnection.getConnection();
-     PreparedStatement stmt = conn.prepareStatement(sql);
+try (PreparedStatement stmt = DBConnection.getConnection().prepareStatement(sql);
      ResultSet rs = stmt.executeQuery()) {
 ```
 - `executeQuery()` is used for SELECT. It returns a `ResultSet` – like a table you read row by row.
@@ -298,10 +312,9 @@ String sql = "{call CALCULATE_BONUS(?, ?)}";
 ```
 - `{call NAME(?, …)}` is the standard JDBC syntax for calling a stored procedure. 1st `?` = IN id, 2nd `?` = OUT bonus.
 ```java
-try (Connection conn = DBConnection.getConnection();
-     CallableStatement stmt = conn.prepareCall(sql)) {
+try (CallableStatement stmt = DBConnection.getConnection().prepareCall(sql)) {
 ```
-- `prepareCall` gives a `CallableStatement` – the statement type for procedures (it supports OUT parameters).
+- Same shared connection. `prepareCall` gives a `CallableStatement` – the statement type for procedures (it supports OUT parameters).
 ```java
 stmt.setInt(1, id);
 stmt.registerOutParameter(2, Types.NUMERIC);
@@ -337,7 +350,7 @@ while (rs.next()) {
 }
 return employees;
 ```
-- From here it's exactly the same loop as the READ method. The `rs` is closed automatically when the connection closes.
+- From here it's exactly the same loop as the READ method. The `rs` is closed automatically when the statement `stmt` closes.
 
 ### PROCEDURE CALL WITH OBJECT – `insertEmployeeWithObject(Employee e)`
 ```java
@@ -349,9 +362,9 @@ Object[] attributes = { e.getId(), e.getName(), e.getDepartment(), e.getSalary()
 ```
 - The values of the object's fields, **in the same order as in `CREATE TYPE EMPLOYEE_OBJ`** (ID, NAME, DEPARTMENT, SALARY, BONUS). A new employee's ID is `0` – that's fine, the procedure ignores it.
 ```java
-Struct empObj = conn.createStruct("EMPLOYEE_OBJ", attributes);
+Struct empObj = DBConnection.getConnection().createStruct("EMPLOYEE_OBJ", attributes);
 ```
-- Builds a real Oracle `EMPLOYEE_OBJ` in Java. The type name must be in **UPPERCASE**, as Oracle stores it.
+- Uses the same shared connection to build a real Oracle `EMPLOYEE_OBJ` in Java. The type name must be in **UPPERCASE**, as Oracle stores it.
 ```java
 stmt.setObject(1, empObj);
 stmt.execute();
@@ -414,4 +427,4 @@ for (Employee e : dao.getAllEmployees()) { System.out.println(e); }
 | INSERT / UPDATE / DELETE | `PreparedStatement` | `executeUpdate()` | number of rows |
 | Stored procedure | `CallableStatement` (`{call …}`) | `execute()` | OUT value: `registerOutParameter(n, Types.NUMERIC)` then `getDouble(n)` |
 | Procedure OUT cursor | `registerOutParameter(n, Types.REF_CURSOR)` | `execute()` | `(ResultSet) stmt.getObject(n)` |
-| Oracle object param | `conn.createStruct("TYPE", values)` | `setObject(n, struct)` | – |
+| Oracle object param | `connection.createStruct("TYPE", values)` | `setObject(n, struct)` | – |
